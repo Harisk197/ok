@@ -1,1 +1,0 @@
-# FastAPI Legal Assistant Backend
