@@ -55,10 +55,12 @@ class OllamaService:
                     "top_p": 0.9,
                     "top_k": 40,
                     "num_predict": 2048,
+                    "stop": ["Human:", "User:", "Assistant:"],
                 }
             }
             
             logger.info(f"🤖 Sending request to DeepSeek model: {self.model}")
+            logger.debug(f"Prompt length: {len(full_prompt)} characters")
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream(
@@ -68,25 +70,34 @@ class OllamaService:
                 ) as response:
                     if response.status_code != 200:
                         error_text = await response.aread()
+                        logger.error(f"Ollama API error: {response.status_code} - {error_text}")
                         raise Exception(f"Ollama API error: {response.status_code} - {error_text}")
                     
+                    total_tokens = 0
                     async for line in response.aiter_lines():
                         if line.strip():
                             try:
                                 chunk = json.loads(line)
                                 if "response" in chunk:
+                                    total_tokens += 1
                                     yield chunk["response"]
                                 
                                 if chunk.get("done", False):
-                                    logger.info("✅ DeepSeek response completed")
+                                    logger.info(f"✅ DeepSeek response completed ({total_tokens} tokens)")
                                     break
                                     
                             except json.JSONDecodeError:
+                                logger.warning(f"Failed to parse JSON: {line}")
                                 continue
                                 
         except Exception as e:
             logger.error(f"❌ Ollama streaming failed: {e}")
-            yield f"I apologize, but I'm having trouble connecting to the AI service. Error: {str(e)}"
+            error_msg = "I apologize, but I'm having trouble connecting to the AI service. Please try again in a moment."
+            if "Connection" in str(e):
+                error_msg = "Unable to connect to the AI service. Please ensure Ollama is running and try again."
+            elif "timeout" in str(e).lower():
+                error_msg = "The AI service is taking too long to respond. Please try with a shorter question."
+            yield error_msg
     
     def _build_system_prompt(self) -> str:
         """Build system prompt for legal document analysis"""
@@ -168,6 +179,7 @@ class OllamaService:
                     result = response.json()
                     return result.get("response", "No response generated")
                 else:
+                    logger.error(f"Ollama API error: {response.status_code}")
                     raise Exception(f"Ollama API error: {response.status_code}")
                     
         except Exception as e:

@@ -5,21 +5,24 @@ import { ArrowRight, RotateCcw } from 'lucide-react';
 import FileUpload from '../components/FileUpload/FileUpload';
 import { UploadedDocument } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { apiService } from '../services/api';
 
 const Upload: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocument[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFilesUploaded = (files: UploadedDocument[]) => {
     setUploadedFiles(files);
-    // Store uploaded files in localStorage for demo purposes
-    localStorage.setItem('uploadedDocuments', JSON.stringify(files));
+    setError(null);
   };
 
   const clearAllFiles = () => {
     setUploadedFiles([]);
-    localStorage.removeItem('uploadedDocuments');
+    // Clear session
+    apiService.clearSession();
+    setError(null);
   };
 
   const proceedToQuery = () => {
@@ -30,6 +33,26 @@ const Upload: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center space-x-3"
+        >
+          <div className="text-red-500">⚠️</div>
+          <div>
+            <p className="text-red-700 font-medium">Upload Error</p>
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto text-red-400 hover:text-red-600"
+          >
+            ✕
+          </button>
+        </motion.div>
+      )}
+      
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -46,6 +69,7 @@ const Upload: React.FC = () => {
       <FileUpload 
         onFilesUploaded={handleFilesUploaded}
         uploadedFiles={uploadedFiles}
+        onError={setError}
       />
 
       {uploadedFiles.length > 0 && (

@@ -9,6 +9,7 @@ import json
 from app.config import settings
 from app.models.schemas import DocumentInfo
 from app.utils.logger import get_logger
+from app.services.session_service import session_service
 
 logger = get_logger(__name__)
 
@@ -20,15 +21,13 @@ class DocumentService:
         
         # Ensure upload directory exists
         os.makedirs(self.upload_dir, exist_ok=True)
-        
-        # Simple in-memory storage for demo (use database in production)
-        self.documents_db = {}
     
     def validate_file(self, file: UploadFile) -> bool:
         """Validate uploaded file"""
         try:
             # Check file extension
             if not file.filename:
+                logger.warning("File has no filename")
                 return False
                 
             file_ext = file.filename.split('.')[-1].lower()
@@ -41,11 +40,25 @@ class DocumentService:
                 logger.warning(f"File too large: {file.size} bytes")
                 return False
             
+            # Check for potentially malicious files
+            if self._is_potentially_malicious(file.filename):
+                logger.warning(f"Potentially malicious file: {file.filename}")
+                return False
+            
             return True
             
         except Exception as e:
             logger.error(f"File validation error: {e}")
             return False
+    
+    def _is_potentially_malicious(self, filename: str) -> bool:
+        """Check for potentially malicious file patterns"""
+        dangerous_patterns = [
+            '../', '..\\', '/etc/', '/var/', '/usr/',
+            '.exe', '.bat', '.cmd', '.scr', '.vbs', '.js'
+        ]
+        filename_lower = filename.lower()
+        return any(pattern in filename_lower for pattern in dangerous_patterns)
     
     async def save_file(self, file: UploadFile) -> str:
         """Save uploaded file to disk"""
@@ -56,12 +69,18 @@ class DocumentService:
             filename = f"{file_id}.{file_ext}"
             file_path = os.path.join(self.upload_dir, filename)
             
+            # Reset file pointer to beginning
+            await file.seek(0)
+            
             # Save file
             async with aiofiles.open(file_path, 'wb') as f:
                 content = await file.read()
                 
                 # Check actual file size
                 if len(content) > self.max_file_size:
+                    # Clean up the file if it was created
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
                     raise ValueError(f"File size {len(content)} exceeds maximum {self.max_file_size}")
                 
                 await f.write(content)
@@ -71,13 +90,20 @@ class DocumentService:
             
         except Exception as e:
             logger.error(f"File save error: {e}")
+            # Clean up any partially created file
+            if 'file_path' in locals() and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
             raise
     
     async def process_document(
         self, 
         file_path: str, 
         extracted_text: str, 
-        original_filename: str
+        original_filename: str,
+        session_id: Optional[str] = None
     ) -> DocumentInfo:
         """Process document and extract legal information"""
         try:
@@ -85,7 +111,9 @@ class DocumentService:
             file_id = os.path.basename(file_path).split('.')[0]
             
             # Extract clauses from text (simple regex-based approach)
-            clauses = self._extract_clauses(extracted_text)
+            from app.services.ocr_service import OCRService
+            ocr_service = OCRService()
+            clauses = ocr_service.extract_legal_clauses(extracted_text)
             
             document_info = DocumentInfo(
                 id=file_id,
@@ -95,11 +123,13 @@ class DocumentService:
                 uploaded_at=datetime.now(),
                 text_content=extracted_text,
                 clauses=clauses,
-                file_path=file_path
+                file_path=file_path,
+                session_id=session_id
             )
             
-            # Store in memory (use database in production)
-            self.documents_db[file_id] = document_info
+            # Add to session if session_id provided
+            if session_id:
+                session_service.add_document_to_session(session_id, document_info)
             
             logger.info(f"✅ Document processed: {original_filename}")
             return document_info
@@ -107,36 +137,6 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Document processing error: {e}")
             raise
-    
-    def _extract_clauses(self, text: str) -> List[Dict[str, Any]]:
-        """Extract clauses from document text"""
-        import re
-        
-        clauses = []
-        
-        # Simple pattern to find numbered clauses
-        clause_patterns = [
-            r'(\d+\.\d+)\s+([A-Z][^.]*\.)',  # 12.2 Clause text.
-            r'(Section\s+\d+)\s+([A-Z][^.]*\.)',  # Section 12 text.
-            r'(Article\s+[IVX]+)\s+([A-Z][^.]*\.)',  # Article IV text.
-            r'(\([a-z]\))\s+([A-Z][^.]*\.)',  # (a) text.
-        ]
-        
-        for pattern in clause_patterns:
-            matches = re.finditer(pattern, text, re.MULTILINE | re.IGNORECASE)
-            for match in matches:
-                clause_number = match.group(1)
-                clause_text = match.group(2)
-                
-                if len(clause_text) > 20:  # Filter out very short matches
-                    clauses.append({
-                        "number": clause_number,
-                        "text": clause_text.strip(),
-                        "confidence": 0.8,  # Default confidence
-                        "type": "neutral"
-                    })
-        
-        return clauses[:10]  # Limit to first 10 clauses
     
     def _get_file_type(self, filename: str) -> str:
         """Get MIME type from filename"""
@@ -151,10 +151,18 @@ class DocumentService:
     
     async def build_context(
         self, 
-        documents: List[DocumentInfo], 
+        documents: List[DocumentInfo] = None,
+        session_id: str = None,
         history: List[Dict[str, Any]] = None
     ) -> str:
         """Build context string from documents and history"""
+        # Get documents from session if not provided
+        if not documents and session_id:
+            documents = session_service.get_session_documents(session_id)
+        
+        if not documents:
+            documents = []
+            
         context_parts = []
         
         # Add document content
@@ -164,39 +172,49 @@ class DocumentService:
                 context_parts.append(f"\n📄 **{doc.name}**")
                 if doc.text_content:
                     # Truncate very long content
-                    content = doc.text_content[:2000] + "..." if len(doc.text_content) > 2000 else doc.text_content
+                    content = doc.text_content[:3000] + "..." if len(doc.text_content) > 3000 else doc.text_content
                     context_parts.append(content)
                 
                 # Add extracted clauses
                 if doc.clauses:
                     context_parts.append("\n**Key Clauses:**")
-                    for clause in doc.clauses[:5]:  # First 5 clauses
-                        context_parts.append(f"- {clause['number']}: {clause['text'][:200]}...")
+                    for clause in doc.clauses[:8]:  # First 8 clauses
+                        clause_text = clause['text'][:300] + "..." if len(clause['text']) > 300 else clause['text']
+                        context_parts.append(f"- {clause['number']}: {clause_text}")
                 
                 context_parts.append("\n" + "-"*50)
         
         return "\n".join(context_parts)
     
-    async def list_documents(self) -> List[DocumentInfo]:
+    async def list_documents(self, session_id: str = None) -> List[DocumentInfo]:
         """List all uploaded documents"""
-        return list(self.documents_db.values())
+        if session_id:
+            return session_service.get_session_documents(session_id)
+        return []
     
-    async def get_document(self, document_id: str) -> Optional[DocumentInfo]:
+    async def get_document(self, document_id: str, session_id: str = None) -> Optional[DocumentInfo]:
         """Get specific document by ID"""
-        return self.documents_db.get(document_id)
+        if session_id:
+            documents = session_service.get_session_documents(session_id)
+            for doc in documents:
+                if doc.id == document_id:
+                    return doc
+        return None
     
-    async def delete_document(self, document_id: str) -> bool:
+    async def delete_document(self, document_id: str, session_id: str = None) -> bool:
         """Delete document"""
         try:
-            if document_id in self.documents_db:
-                doc = self.documents_db[document_id]
+            if session_id:
+                doc = await self.get_document(document_id, session_id)
+                if not doc:
+                    return False
                 
                 # Delete file from disk
                 if os.path.exists(doc.file_path):
                     os.remove(doc.file_path)
                 
-                # Remove from memory
-                del self.documents_db[document_id]
+                # Remove from session
+                session_service.remove_document_from_session(session_id, document_id)
                 
                 logger.info(f"✅ Document deleted: {document_id}")
                 return True

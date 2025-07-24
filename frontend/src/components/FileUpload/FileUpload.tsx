@@ -8,11 +8,11 @@ import { apiService } from '../../services/api';
 interface FileUploadProps {
   onFilesUploaded: (files: UploadedDocument[]) => void;
   uploadedFiles: UploadedDocument[];
+  onError?: (error: string) => void;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles, onError }) => {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const { t } = useLanguage();
@@ -21,63 +21,55 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles 
   const maxFileSize = 10 * 1024 * 1024; // 10MB
 
   const handleFiles = useCallback(async (files: FileList) => {
-    setError(null);
+    onError?.(null);
     setIsUploading(true);
-    const validFiles: UploadedDocument[] = [];
     const fileArray = Array.from(files);
     
     // Validate files first
     for (const file of fileArray) {
       if (!allowedTypes.includes(file.type)) {
-        setError(`File type not supported: ${file.name}. Please upload PDF, JPEG, or PNG files only.`);
+        onError?.(`File type not supported: ${file.name}. Please upload PDF, JPEG, or PNG files only.`);
         setIsUploading(false);
         return;
       }
       
       if (file.size > maxFileSize) {
-        setError(`File too large: ${file.name}. Maximum size is 10MB.`);
+        onError?.(`File too large: ${file.name}. Maximum size is 10MB.`);
         setIsUploading(false);
         return;
       }
     }
 
-    // Process valid files
-    for (const file of fileArray) {
-      const uploadedFile: UploadedDocument = {
-        id: `file-${Date.now()}-${Math.random()}`,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        uploadedAt: new Date(),
-        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-      };
+    try {
+      // Upload files to backend
+      const result = await apiService.uploadDocuments(fileArray);
       
-      validFiles.push(uploadedFile);
-      
-      // Simulate upload progress
-      setUploadProgress(prev => ({ ...prev, [uploadedFile.id]: 0 }));
-      
-      for (let progress = 0; progress <= 100; progress += 10) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        setUploadProgress(prev => ({ ...prev, [uploadedFile.id]: progress }));
+      if (!result.success) {
+        onError?.(result.error || 'Upload failed');
+        setIsUploading(false);
+        return;
       }
-    }
-
-    if (validFiles.length > 0) {
-      // In production, upload to backend
-      // const result = await apiService.uploadDocuments(fileArray);
-      // if (!result.success) {
-      //   setError(result.error || 'Upload failed');
-      //   setIsUploading(false);
-      //   return;
-      // }
       
-      onFilesUploaded([...uploadedFiles, ...validFiles]);
+      // Convert backend response to frontend format
+      const processedFiles: UploadedDocument[] = result.data.documents.map((doc: any) => ({
+        id: doc.id,
+        name: doc.name,
+        type: doc.type,
+        size: doc.size,
+        uploadedAt: new Date(doc.uploaded_at),
+        preview: doc.type.startsWith('image/') ? `/uploads/${doc.id}.${doc.name.split('.').pop()}` : undefined,
+      }));
+
+      onFilesUploaded([...uploadedFiles, ...processedFiles]);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      onError?.(error instanceof Error ? error.message : 'Upload failed');
     }
     
     setIsUploading(false);
     setUploadProgress({});
-  }, [onFilesUploaded, uploadedFiles]);
+  }, [onFilesUploaded, uploadedFiles, onError]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -94,6 +86,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles 
   const removeFile = (fileId: string) => {
     const updatedFiles = uploadedFiles.filter(file => file.id !== fileId);
     onFilesUploaded(updatedFiles);
+    
+    // Also delete from backend
+    apiService.deleteDocument(fileId).catch(error => {
+      console.error('Failed to delete document from backend:', error);
+    });
   };
 
   const formatFileSize = (bytes: number) => {
@@ -111,8 +108,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles 
   };
 
   const downloadFile = (file: UploadedDocument) => {
-    // In production, this would download from the server
-    console.log('Download file:', file.name);
+    // Create download link
+    const link = document.createElement('a');
+    link.href = file.preview || '#';
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -161,11 +163,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles 
           onChange={handleFileInput}
           className="hidden"
           id="file-upload"
+          disabled={isUploading}
         />
         
         <label
           htmlFor="file-upload"
-          className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-bold text-lg hover:from-blue-700 hover:to-purple-700 cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl"
+          className={`inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-bold text-lg hover:from-blue-700 hover:to-purple-700 cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl ${
+            isUploading ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         >
           <Upload className="h-5 w-5 mr-3" />
           {isUploading ? t('uploading') : t('browseFiles')}
@@ -178,16 +183,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles 
         )}
       </motion.div>
 
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center space-x-3"
-        >
-          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-          <p className="text-red-700">{error}</p>
-        </motion.div>
-      )}
 
       {uploadedFiles.length > 0 && (
         <motion.div

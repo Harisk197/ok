@@ -2,12 +2,14 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import Request, Header
 import uvicorn
 import os
 from typing import List, Optional
 import asyncio
 import json
 from datetime import datetime
+import uuid
 
 from app.config import settings
 from app.models.schemas import (
@@ -15,11 +17,14 @@ from app.models.schemas import (
     ChatResponse, 
     UploadResponse, 
     HealthResponse,
-    DocumentInfo
+    DocumentInfo,
+    StreamingChatResponse,
+    SessionInfo
 )
 from app.services.ollama_service import OllamaService
 from app.services.document_service import DocumentService
 from app.services.ocr_service import OCRService
+from app.services.session_service import session_service
 from app.utils.logger import get_logger
 
 # Initialize logger
@@ -52,6 +57,17 @@ ollama_service = OllamaService()
 document_service = DocumentService()
 ocr_service = OCRService()
 
+# Session dependency
+async def get_or_create_session(x_session_id: Optional[str] = Header(None)) -> str:
+    """Get existing session or create new one"""
+    if x_session_id:
+        session = session_service.get_session(x_session_id)
+        if session:
+            return x_session_id
+    
+    # Create new session
+    return session_service.create_session()
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
@@ -65,14 +81,29 @@ async def startup_event():
         logger.error(f"❌ Ollama connection failed: {e}")
         logger.warning("API will start but AI features may not work")
     
+    # Start background task for session cleanup
+    asyncio.create_task(cleanup_sessions_periodically())
+    
     logger.info("🚀 Legal Assistant API started successfully")
+
+async def cleanup_sessions_periodically():
+    """Background task to clean up expired sessions"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Run every 5 minutes
+            session_service.cleanup_expired_sessions()
+        except Exception as e:
+            logger.error(f"Session cleanup error: {e}")
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
     try:
         # Test Ollama connection
-        ollama_status = await ollama_service.test_connection()
+        try:
+            ollama_status = await ollama_service.test_connection()
+        except Exception:
+            ollama_status = False
         
         return HealthResponse(
             status="healthy",
@@ -88,41 +119,90 @@ async def health_check():
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
+@app.post("/session")
+async def create_session():
+    """Create a new session"""
+    try:
+        session_id = session_service.create_session()
+        return {"session_id": session_id, "message": "Session created successfully"}
+    except Exception as e:
+        logger.error(f"Session creation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create session")
+
+@app.get("/session/{session_id}")
+async def get_session_info(session_id: str):
+    """Get session information"""
+    try:
+        session = session_service.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        documents = session_service.get_session_documents(session_id)
+        return {
+            "session": session,
+            "documents": documents,
+            "document_count": len(documents)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get session info failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get session info")
+
 @app.post("/upload-documents", response_model=UploadResponse)
-async def upload_documents(files: List[UploadFile] = File(...)):
+async def upload_documents(
+    files: List[UploadFile] = File(...),
+    session_id: str = Depends(get_or_create_session)
+):
     """Upload and process multiple documents"""
     try:
         logger.info(f"Received {len(files)} files for upload")
         
         processed_documents = []
+        failed_files = []
         
         for file in files:
-            # Validate file
-            if not document_service.validate_file(file):
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Invalid file: {file.filename}"
+            try:
+                # Validate file
+                if not document_service.validate_file(file):
+                    failed_files.append(f"Invalid file: {file.filename}")
+                    continue
+                
+                # Save file
+                file_path = await document_service.save_file(file)
+                
+                # Extract text using OCR
+                extracted_text = await ocr_service.extract_text(file_path)
+                
+                # Process document for legal analysis
+                document_info = await document_service.process_document(
+                    file_path, extracted_text, file.filename, session_id
                 )
-            
-            # Save file
-            file_path = await document_service.save_file(file)
-            
-            # Extract text using OCR
-            extracted_text = await ocr_service.extract_text(file_path)
-            
-            # Process document for legal analysis
-            document_info = await document_service.process_document(
-                file_path, extracted_text, file.filename
+                
+                processed_documents.append(document_info)
+                logger.info(f"✅ Processed document: {file.filename}")
+                
+            except Exception as e:
+                logger.error(f"Failed to process {file.filename}: {e}")
+                failed_files.append(f"Failed to process {file.filename}: {str(e)}")
+                continue
+        
+        if not processed_documents and failed_files:
+            raise HTTPException(
+                status_code=400,
+                detail=f"All files failed to process: {'; '.join(failed_files)}"
             )
-            
-            processed_documents.append(document_info)
-            logger.info(f"✅ Processed document: {file.filename}")
+        
+        message = f"Successfully processed {len(processed_documents)} documents"
+        if failed_files:
+            message += f". {len(failed_files)} files failed: {'; '.join(failed_files[:3])}"
         
         return UploadResponse(
             success=True,
-            message=f"Successfully processed {len(processed_documents)} documents",
+            message=message,
             documents=processed_documents,
-            total_documents=len(processed_documents)
+            total_documents=len(processed_documents),
+            session_id=session_id
         )
         
     except Exception as e:
@@ -130,16 +210,41 @@ async def upload_documents(files: List[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
-async def chat_with_documents(request: ChatRequest):
+async def chat_with_documents(
+    request: ChatRequest,
+    session_id: str = Depends(get_or_create_session)
+):
     """Chat with AI about uploaded documents - with streaming response"""
     try:
         logger.info(f"Chat request: {request.message[:100]}...")
         
         # Build context from documents and chat history
         context = await document_service.build_context(
-            request.documents, 
+            request.documents,
+            session_id,
             request.history
         )
+        
+        if not context.strip():
+            # No documents available
+            async def no_documents_response():
+                error_response = {
+                    'content': "I don't see any documents uploaded yet. Please upload some legal documents first so I can help analyze them.",
+                    'done': True,
+                    'session_id': session_id
+                }
+                yield f"data: {json.dumps(error_response)}\n\n"
+            
+            return StreamingResponse(
+                no_documents_response(),
+                media_type="text/plain",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "X-Session-ID": session_id,
+                }
+            )
         
         # Create streaming response
         async def generate_response():
@@ -151,16 +256,27 @@ async def chat_with_documents(request: ChatRequest):
                     history=request.history
                 ):
                     # Format as Server-Sent Events
-                    yield f"data: {json.dumps({'content': chunk, 'done': False})}\n\n"
+                    response_data = {
+                        'content': chunk, 
+                        'done': False,
+                        'session_id': session_id
+                    }
+                    yield f"data: {json.dumps(response_data)}\n\n"
                 
                 # Send completion signal
-                yield f"data: {json.dumps({'content': '', 'done': True})}\n\n"
+                completion_data = {
+                    'content': '', 
+                    'done': True,
+                    'session_id': session_id
+                }
+                yield f"data: {json.dumps(completion_data)}\n\n"
                 
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
                 error_response = {
                     'error': str(e),
-                    'done': True
+                    'done': True,
+                    'session_id': session_id
                 }
                 yield f"data: {json.dumps(error_response)}\n\n"
         
@@ -171,6 +287,7 @@ async def chat_with_documents(request: ChatRequest):
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "Access-Control-Allow-Origin": "*",
+                "X-Session-ID": session_id,
             }
         )
         
@@ -179,25 +296,47 @@ async def chat_with_documents(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/documents")
-async def list_documents():
+async def list_documents(session_id: str = Depends(get_or_create_session)):
     """List all uploaded documents"""
     try:
-        documents = await document_service.list_documents()
-        return {"documents": documents}
+        documents = await document_service.list_documents(session_id)
+        return {
+            "documents": documents,
+            "session_id": session_id,
+            "count": len(documents)
+        }
     except Exception as e:
         logger.error(f"Failed to list documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
+async def delete_document(
+    document_id: str,
+    session_id: str = Depends(get_or_create_session)
+):
     """Delete a specific document"""
     try:
-        success = await document_service.delete_document(document_id)
+        success = await document_service.delete_document(document_id, session_id)
         if not success:
             raise HTTPException(status_code=404, detail="Document not found")
-        return {"message": "Document deleted successfully"}
+        return {
+            "message": "Document deleted successfully",
+            "session_id": session_id
+        }
     except Exception as e:
         logger.error(f"Failed to delete document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/session/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a session and all its documents"""
+    try:
+        success = session_service.cleanup_session(session_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"message": "Session deleted successfully"}
+    except Exception as e:
+        logger.error(f"Failed to delete session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")

@@ -6,7 +6,6 @@ import { ArrowLeft, RotateCcw, FileText } from 'lucide-react';
 import ChatInterface from '../components/Chat/ChatInterface';
 import DocumentPreview from '../components/DocumentPreview/DocumentPreview';
 import { UploadedDocument, ChatMessage, Clause } from '../types';
-import { mockQueryResponse } from '../data/mockData';
 import { apiService } from '../services/api';
 
 const Query: React.FC = () => {
@@ -17,18 +16,30 @@ const Query: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [highlightedClause, setHighlightedClause] = useState<Clause>();
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load uploaded documents from localStorage
-    const storedDocs = localStorage.getItem('uploadedDocuments');
-    if (storedDocs) {
-      const docs = JSON.parse(storedDocs);
-      setUploadedDocuments(docs);
-      setSelectedDocument(docs[0]);
-    }
+    // Load documents from backend session
+    loadDocuments();
   }, []);
+  
+  const loadDocuments = async () => {
+    try {
+      const result = await apiService.listDocuments();
+      if (result.success && result.data.documents) {
+        setUploadedDocuments(result.data.documents);
+        if (result.data.documents.length > 0) {
+          setSelectedDocument(result.data.documents[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    }
+  };
 
   const handleSendMessage = useCallback(async (message: string) => {
+    setError(null);
+    
     // Add user message
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -40,63 +51,75 @@ const Query: React.FC = () => {
     setChatMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     
+    // Add assistant message placeholder for streaming
+    const assistantMessage: ChatMessage = {
+      id: `assistant-${Date.now()}`,
+      type: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    
+    setChatMessages(prev => [...prev, assistantMessage]);
+    
     try {
-      // Call the API with documents context
+      let accumulatedResponse = '';
+      
       const result = await apiService.sendChatMessage(
         message, 
         chatMessages,
-        uploadedDocuments
+        uploadedDocuments,
+        (chunk: string) => {
+          // Handle streaming chunks
+          accumulatedResponse += chunk;
+          setChatMessages(prev => 
+            prev.map(msg => 
+              msg.id === assistantMessage.id 
+                ? { ...msg, content: accumulatedResponse }
+                : msg
+            )
+          );
+        }
       );
       
       if (!result.success) {
-        throw new Error(result.error);
-      }
-      const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        type: 'assistant',
-        content: '',
-        timestamp: new Date(),
-        isStreaming: true,
-      };
-      
-      setChatMessages(prev => [...prev, assistantMessage]);
-      
-      // Simulate streaming response
-      const fullResponse = mockQueryResponse.answer;
-      const words = fullResponse.split(' ');
-      
-      for (let i = 0; i < words.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const partialResponse = words.slice(0, i + 1).join(' ');
-        
-        setChatMessages(prev => 
-          prev.map(msg => 
-            msg.id === assistantMessage.id 
-              ? { ...msg, content: partialResponse }
-              : msg
-          )
-        );
+        throw new Error(result.error || 'Failed to get response');
       }
       
       // Mark streaming as complete
       setChatMessages(prev => 
         prev.map(msg => 
           msg.id === assistantMessage.id 
-            ? { ...msg, isStreaming: false }
+            ? { ...msg, isStreaming: false, content: accumulatedResponse || result.data?.response || 'No response received' }
             : msg
         )
       );
       
     } catch (error) {
       console.error('Chat error:', error);
+      setError(error instanceof Error ? error.message : 'An error occurred');
+      
+      // Update the assistant message with error
+      setChatMessages(prev => 
+        prev.map(msg => 
+          msg.id === assistantMessage.id 
+            ? { 
+                ...msg, 
+                content: `I apologize, but I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+                isStreaming: false 
+              }
+            : msg
+        )
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [chatMessages]);
+  }, [chatMessages, uploadedDocuments]);
 
   const handleClearChat = useCallback(() => {
     setChatMessages([]);
     setHighlightedClause(undefined);
+    setError(null);
   }, []);
 
   const handleRegenerateResponse = useCallback(async () => {
@@ -116,9 +139,11 @@ const Query: React.FC = () => {
   }, [chatMessages, handleSendMessage]);
 
   const handleClearDocuments = useCallback(() => {
-    localStorage.removeItem('uploadedDocuments');
+    // Clear documents from session
     setUploadedDocuments([]);
     setSelectedDocument(undefined);
+    setChatMessages([]);
+    setError(null);
     navigate('/upload');
   }, [navigate]);
 
@@ -154,6 +179,26 @@ const Query: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center space-x-3"
+        >
+          <div className="text-red-500">⚠️</div>
+          <div>
+            <p className="text-red-700 font-medium">Error</p>
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto text-red-400 hover:text-red-600"
+          >
+            ✕
+          </button>
+        </motion.div>
+      )}
+      
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

@@ -3,6 +3,12 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+class SessionInfo(BaseModel):
+    session_id: str
+    created_at: datetime
+    last_activity: datetime
+    document_count: int = 0
+
 class ClauseType(str, Enum):
     SUPPORTIVE = "supportive"
     CRITICAL = "critical"
@@ -17,6 +23,7 @@ class DocumentInfo(BaseModel):
     text_content: Optional[str] = None
     clauses: Optional[List[Dict[str, Any]]] = None
     file_path: str
+    session_id: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
@@ -28,7 +35,13 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = Field(default_factory=list)
     documents: List[DocumentInfo] = Field(default_factory=list)
     language: Optional[str] = "en"
+    session_id: Optional[str] = None
 
+class StreamingChatResponse(BaseModel):
+    content: str
+    done: bool
+    error: Optional[str] = None
+    session_id: Optional[str] = None
 class ChatResponse(BaseModel):
     response: str
     timestamp: datetime
@@ -47,6 +60,7 @@ class UploadResponse(BaseModel):
     message: str
     documents: List[DocumentInfo]
     total_documents: int
+    session_id: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -58,3 +72,4 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
+    session_id: Optional[str] = None
