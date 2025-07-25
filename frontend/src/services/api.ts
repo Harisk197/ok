@@ -99,6 +99,7 @@ export const apiService = {
       };
     }
   },
+
   // Upload documents
   uploadDocuments: async (files: File[]): Promise<ApiResponse> => {
     try {
@@ -111,7 +112,7 @@ export const apiService = {
       }
       
       const formData = new FormData();
-      files.forEach((file, index) => {
+      files.forEach((file) => {
         formData.append(`files`, file);
       });
 
@@ -130,7 +131,7 @@ export const apiService = {
     }
   },
 
-  // Send chat message
+  // Send chat message with proper error handling
   sendChatMessage: async (
     message: string, 
     history: any[] = [], 
@@ -148,8 +149,12 @@ export const apiService = {
       
       const requestData = {
         message,
-        history,
-        documents,
+        history: history.map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.content,
+          timestamp: msg.timestamp
+        })),
+        documents: documents || [],
       };
       
       // Use fetch for streaming instead of axios
@@ -164,8 +169,14 @@ export const apiService = {
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Chat request failed');
+        let errorMessage = 'Chat request failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
       
       // Handle streaming response
@@ -186,18 +197,25 @@ export const apiService = {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
+                  
+                  // Handle errors in streaming response
                   if (data.error) {
                     throw new Error(data.error);
                   }
+                  
+                  // Handle content chunks
                   if (data.content) {
                     fullResponse += data.content;
                     onChunk(data.content);
                   }
+                  
+                  // Handle completion
                   if (data.done) {
                     return { success: true, data: { response: fullResponse } };
                   }
                 } catch (parseError) {
                   console.warn('Failed to parse SSE data:', line);
+                  // Don't throw here, just continue
                 }
               }
             }
@@ -214,6 +232,7 @@ export const apiService = {
       return { success: true, data };
       
     } catch (error: any) {
+      console.error('Chat API Error:', error);
       return { 
         success: false, 
         error: error.message || 'Chat request failed' 
@@ -246,6 +265,28 @@ export const apiService = {
       };
     }
   },
+
+  // Clear all documents and session
+  clearAllDocuments: async (): Promise<ApiResponse> => {
+    try {
+      const sessionId = getSessionId();
+      if (sessionId) {
+        // Delete the session which will clear all documents
+        const response = await api.delete(`/session/${sessionId}`);
+        // Clear local session
+        currentSessionId = null;
+        localStorage.removeItem('sessionId');
+        return { success: true, data: response.data };
+      }
+      return { success: true, data: { message: 'No session to clear' } };
+    } catch (error: any) {
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to clear documents' 
+      };
+    }
+  },
+
   // Health check
   healthCheck: async (): Promise<ApiResponse> => {
     try {

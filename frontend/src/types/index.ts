@@ -5,6 +5,8 @@ export interface UploadedDocument {
   size: number;
   uploadedAt: Date;
   preview?: string;
+  textContent?: string;
+  clauses?: Clause[];
 }
 
 export interface QueryResponse {
@@ -20,7 +22,7 @@ export interface Clause {
   text: string;
   confidence: number;
   type: 'supportive' | 'critical' | 'neutral';
-  documentId: string;
+  documentId?: string;
 }
 
 export interface QueryHistory {

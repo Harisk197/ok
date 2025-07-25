@@ -59,7 +59,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onCopy }) => {
             {/* Message Content */}
             <div className="relative z-10">
               {message.isStreaming ? (
-                <StreamingText text={message.content} />
+                <StreamingText 
+                  text={message.content} 
+                  showThinking={message.content === ''}
+                />
               ) : (
                 <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
               )}
@@ -79,23 +82,25 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onCopy }) => {
           </motion.div>
 
           {/* Copy Button */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={handleCopy}
-            className={`absolute top-2 ${
-              isUser ? 'left-[-40px]' : 'right-[-40px]'
-            } p-2 bg-white rounded-full shadow-lg border border-gray-200 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50`}
-            title={t('copyMessage')}
-          >
-            {copied ? (
-              <Check className="h-4 w-4 text-green-500" />
-            ) : (
-              <Copy className="h-4 w-4 text-gray-600" />
-            )}
-          </motion.button>
+          {!message.isStreaming && message.content && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleCopy}
+              className={`absolute top-2 ${
+                isUser ? 'left-[-40px]' : 'right-[-40px]'
+              } p-2 bg-white rounded-full shadow-lg border border-gray-200 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-gray-50`}
+              title={t('copyMessage')}
+            >
+              {copied ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="h-4 w-4 text-gray-600" />
+              )}
+            </motion.button>
+          )}
 
           {/* Timestamp */}
           <div className={`mt-2 text-xs text-gray-500 ${isUser ? 'text-right' : 'text-left'}`}>

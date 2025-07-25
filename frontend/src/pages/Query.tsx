@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
-import { ArrowLeft, RotateCcw, FileText } from 'lucide-react';
+import { ArrowLeft, FileText, AlertCircle } from 'lucide-react';
 import ChatInterface from '../components/Chat/ChatInterface';
 import DocumentPreview from '../components/DocumentPreview/DocumentPreview';
 import { UploadedDocument, ChatMessage, Clause } from '../types';
@@ -27,13 +27,25 @@ const Query: React.FC = () => {
     try {
       const result = await apiService.listDocuments();
       if (result.success && result.data.documents) {
-        setUploadedDocuments(result.data.documents);
-        if (result.data.documents.length > 0) {
-          setSelectedDocument(result.data.documents[0]);
+        // Convert backend format to frontend format
+        const documents: UploadedDocument[] = result.data.documents.map((doc: any) => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          size: doc.size,
+          uploadedAt: new Date(doc.uploaded_at),
+          textContent: doc.text_content,
+          clauses: doc.clauses,
+        }));
+        
+        setUploadedDocuments(documents);
+        if (documents.length > 0) {
+          setSelectedDocument(documents[0]);
         }
       }
     } catch (error) {
       console.error('Failed to load documents:', error);
+      setError('Failed to load documents');
     }
   };
 
@@ -64,6 +76,7 @@ const Query: React.FC = () => {
     
     try {
       let accumulatedResponse = '';
+      let hasStartedStreaming = false;
       
       const result = await apiService.sendChatMessage(
         message, 
@@ -71,11 +84,23 @@ const Query: React.FC = () => {
         uploadedDocuments,
         (chunk: string) => {
           // Handle streaming chunks
+          if (!hasStartedStreaming) {
+            hasStartedStreaming = true;
+            // Show thinking indicator first
+            setChatMessages(prev => 
+              prev.map(msg => 
+                msg.id === assistantMessage.id 
+                  ? { ...msg, content: '', isStreaming: true }
+                  : msg
+              )
+            );
+          }
+          
           accumulatedResponse += chunk;
           setChatMessages(prev => 
             prev.map(msg => 
               msg.id === assistantMessage.id 
-                ? { ...msg, content: accumulatedResponse }
+                ? { ...msg, content: accumulatedResponse, isStreaming: true }
                 : msg
             )
           );
@@ -90,14 +115,19 @@ const Query: React.FC = () => {
       setChatMessages(prev => 
         prev.map(msg => 
           msg.id === assistantMessage.id 
-            ? { ...msg, isStreaming: false, content: accumulatedResponse || result.data?.response || 'No response received' }
+            ? { 
+                ...msg, 
+                isStreaming: false, 
+                content: accumulatedResponse || result.data?.response || 'No response received' 
+              }
             : msg
         )
       );
       
     } catch (error) {
       console.error('Chat error:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
       
       // Update the assistant message with error
       setChatMessages(prev => 
@@ -105,7 +135,7 @@ const Query: React.FC = () => {
           msg.id === assistantMessage.id 
             ? { 
                 ...msg, 
-                content: `I apologize, but I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+                content: `I apologize, but I encountered an error: ${errorMessage}. Please try again.`,
                 isStreaming: false 
               }
             : msg
@@ -138,14 +168,23 @@ const Query: React.FC = () => {
     }
   }, [chatMessages, handleSendMessage]);
 
-  const handleClearDocuments = useCallback(() => {
-    // Clear documents from session
-    setUploadedDocuments([]);
-    setSelectedDocument(undefined);
-    setChatMessages([]);
-    setError(null);
-    navigate('/upload');
-  }, [navigate]);
+  const handleClearDocuments = useCallback(async () => {
+    try {
+      // Clear documents from backend session
+      const result = await apiService.clearAllDocuments();
+      if (result.success) {
+        setUploadedDocuments([]);
+        setSelectedDocument(undefined);
+        setChatMessages([]);
+        setError(null);
+      } else {
+        setError(result.error || 'Failed to clear documents');
+      }
+    } catch (error) {
+      console.error('Failed to clear documents:', error);
+      setError('Failed to clear documents');
+    }
+  }, []);
 
   const goToUpload = () => {
     navigate('/upload');
@@ -185,16 +224,16 @@ const Query: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center space-x-3"
         >
-          <div className="text-red-500">⚠️</div>
-          <div>
+          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+          <div className="flex-1">
             <p className="text-red-700 font-medium">Error</p>
             <p className="text-red-600 text-sm">{error}</p>
           </div>
           <button
             onClick={() => setError(null)}
-            className="ml-auto text-red-400 hover:text-red-600"
+            className="text-red-400 hover:text-red-600 text-xl font-bold"
           >
-            ✕
+            ×
           </button>
         </motion.div>
       )}
@@ -240,7 +279,7 @@ const Query: React.FC = () => {
         </div>
 
         {/* Document Preview - Takes 1 column */}
-        <div className="lg:col-span-1 bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
+        <div className="lg:col-span-1">
           <DocumentPreview
             documents={uploadedDocuments}
             selectedDocument={selectedDocument}
