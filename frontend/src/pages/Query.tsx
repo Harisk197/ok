@@ -25,7 +25,10 @@ const Query: React.FC = () => {
   
   const loadDocuments = async () => {
     try {
+      console.log('Loading documents in Query page...');
       const result = await apiService.listDocuments();
+      console.log('Documents result:', result);
+      
       if (result.success && result.data.documents) {
         // Convert backend format to frontend format
         const documents: UploadedDocument[] = result.data.documents.map((doc: any) => ({
@@ -38,10 +41,13 @@ const Query: React.FC = () => {
           clauses: doc.clauses,
         }));
         
+        console.log('Converted documents:', documents);
         setUploadedDocuments(documents);
         if (documents.length > 0) {
           setSelectedDocument(documents[0]);
         }
+      } else {
+        console.log('No documents found in result');
       }
     } catch (error) {
       console.error('Failed to load documents:', error);

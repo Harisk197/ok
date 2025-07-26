@@ -13,12 +13,40 @@ const Upload: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Load existing documents on component mount
+  useEffect(() => {
+    const loadExistingDocuments = async () => {
+      try {
+        const result = await apiService.listDocuments();
+        if (result.success && result.data.documents) {
+          const documents: UploadedDocument[] = result.data.documents.map((doc: any) => ({
+            id: doc.id,
+            name: doc.name,
+            type: doc.type,
+            size: doc.size,
+            uploadedAt: new Date(doc.uploaded_at),
+            textContent: doc.text_content,
+            clauses: doc.clauses,
+          }));
+          setUploadedFiles(documents);
+          console.log('Loaded existing documents:', documents);
+        }
+      } catch (error) {
+        console.error('Failed to load existing documents:', error);
+      }
+    };
+
+    loadExistingDocuments();
+  }, []);
+
   const handleFilesUploaded = (files: UploadedDocument[]) => {
+    console.log('Files uploaded callback:', files);
     setUploadedFiles(files);
     setError(null);
   };
 
   const clearAllFiles = () => {
+    console.log('Clearing all files...');
     setUploadedFiles([]);
     // Clear session
     apiService.clearSession();
@@ -27,6 +55,7 @@ const Upload: React.FC = () => {
 
   const proceedToQuery = () => {
     if (uploadedFiles.length > 0) {
+      console.log('Proceeding to query with files:', uploadedFiles);
       navigate('/query');
     }
   };

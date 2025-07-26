@@ -41,6 +41,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles,
     }
 
     try {
+      console.log('Uploading files:', fileArray.map(f => f.name));
       // Upload files to backend
       const result = await apiService.uploadDocuments(fileArray);
       
@@ -50,6 +51,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles,
         return;
       }
       
+      console.log('Upload successful:', result.data);
+      
       // Convert backend response to frontend format
       const processedFiles: UploadedDocument[] = result.data.documents.map((doc: any) => ({
         id: doc.id,
@@ -57,10 +60,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, uploadedFiles,
         type: doc.type,
         size: doc.size,
         uploadedAt: new Date(doc.uploaded_at),
-        preview: doc.type.startsWith('image/') ? `/uploads/${doc.id}.${doc.name.split('.').pop()}` : undefined,
+        textContent: doc.text_content,
+        clauses: doc.clauses,
+        preview: doc.type.startsWith('image/') ? `${import.meta.env.VITE_API_BASE_URL}/uploads/${doc.id}.${doc.name.split('.').pop()}` : undefined,
       }));
 
-      onFilesUploaded([...uploadedFiles, ...processedFiles]);
+      const allFiles = [...uploadedFiles, ...processedFiles];
+      console.log('All processed files:', allFiles);
+      onFilesUploaded(allFiles);
       
     } catch (error) {
       console.error('Upload error:', error);

@@ -156,7 +156,7 @@ async def upload_documents(
 ):
     """Upload and process multiple documents"""
     try:
-        logger.info(f"Received {len(files)} files for upload")
+        logger.info(f"Received {len(files)} files for upload in session {session_id}")
         
         processed_documents = []
         failed_files = []
@@ -196,6 +196,8 @@ async def upload_documents(
         message = f"Successfully processed {len(processed_documents)} documents"
         if failed_files:
             message += f". {len(failed_files)} files failed: {'; '.join(failed_files[:3])}"
+        
+        logger.info(f"Upload complete: {len(processed_documents)} documents in session {session_id}")
         
         return UploadResponse(
             success=True,
@@ -299,7 +301,9 @@ async def chat_with_documents(
 async def list_documents(session_id: str = Depends(get_or_create_session)):
     """List all uploaded documents"""
     try:
+        logger.info(f"Listing documents for session: {session_id}")
         documents = await document_service.list_documents(session_id)
+        logger.info(f"Found {len(documents)} documents in session {session_id}")
         return {
             "documents": documents,
             "session_id": session_id,

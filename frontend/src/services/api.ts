@@ -24,6 +24,7 @@ const getSessionId = (): string | null => {
 const setSessionId = (sessionId: string) => {
   currentSessionId = sessionId;
   localStorage.setItem('sessionId', sessionId);
+  console.log('Session ID set:', sessionId);
 };
 
 // Request interceptor
@@ -33,6 +34,7 @@ api.interceptors.request.use(
     const sessionId = getSessionId();
     if (sessionId) {
       config.headers['X-Session-ID'] = sessionId;
+      console.log('Adding session ID to request:', sessionId);
     }
     
     console.log('API Request:', config.method?.toUpperCase(), config.url);
@@ -50,6 +52,7 @@ api.interceptors.response.use(
     const sessionId = response.headers['x-session-id'];
     if (sessionId && sessionId !== getSessionId()) {
       setSessionId(sessionId);
+      console.log('Updated session ID from response:', sessionId);
     }
     return response;
   },
@@ -104,11 +107,15 @@ export const apiService = {
   uploadDocuments: async (files: File[]): Promise<ApiResponse> => {
     try {
       // Ensure we have a session
-      if (!getSessionId()) {
+      let sessionId = getSessionId();
+      if (!sessionId) {
+        console.log('No session found, creating new session...');
         const sessionResult = await apiService.createSession();
         if (!sessionResult.success) {
           return sessionResult;
         }
+        sessionId = sessionResult.data.session_id;
+        console.log('Created new session for upload:', sessionId);
       }
       
       const formData = new FormData();
@@ -122,8 +129,10 @@ export const apiService = {
         },
       });
 
+      console.log('Upload response:', response.data);
       return { success: true, data: response.data };
     } catch (error: any) {
+      console.error('Upload error:', error);
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Upload failed' 
@@ -243,9 +252,19 @@ export const apiService = {
   // List documents
   listDocuments: async (): Promise<ApiResponse> => {
     try {
+      const sessionId = getSessionId();
+      console.log('Listing documents for session:', sessionId);
+      
+      if (!sessionId) {
+        console.log('No session ID available for listing documents');
+        return { success: true, data: { documents: [], count: 0 } };
+      }
+      
       const response = await api.get('/documents');
+      console.log('Documents response:', response.data);
       return { success: true, data: response.data };
     } catch (error: any) {
+      console.error('List documents error:', error);
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Failed to list documents' 
@@ -309,6 +328,7 @@ export const apiService = {
   clearSession: (): void => {
     currentSessionId = null;
     localStorage.removeItem('sessionId');
+    console.log('Session cleared');
   },
 };
 
