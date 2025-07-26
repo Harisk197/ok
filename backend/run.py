@@ -65,13 +65,15 @@ def main():
     
     # Start the server
     try:
+        logger.info("🔥 Starting FastAPI server...")
         uvicorn.run(
             "app.main:app",
             host=settings.API_HOST,
             port=settings.API_PORT,
             reload=settings.DEBUG,
             log_level=settings.LOG_LEVEL.lower(),
-            access_log=True
+            access_log=True,
+            reload_dirs=["app"] if settings.DEBUG else None
         )
     except KeyboardInterrupt:
         logger.info("👋 Server stopped by user")

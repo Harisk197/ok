@@ -83,11 +83,14 @@ nano .env
 
 ### **3. Start the Server**
 ```bash
-# Run the backend server
+# Method 1: Use the main startup script (recommended)
 python run.py
 
-# Or use uvicorn directly
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Method 2: Use alternative startup script
+python start_server.py
+
+# Method 3: Use uvicorn directly (if above methods don't work)
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### **4. Verify Installation**
