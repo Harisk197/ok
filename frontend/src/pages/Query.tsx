@@ -27,22 +27,31 @@ const Query: React.FC = () => {
     try {
       console.log('Loading documents in Query page...');
       
-      // First try to load from localStorage as backup
+      // First restore session ID if available
+      const storedSessionId = localStorage.getItem('currentSessionId');
+      if (storedSessionId && !apiService.getCurrentSessionId()) {
+        console.log('Restoring session ID from localStorage:', storedSessionId);
+        // Manually set the session ID
+        localStorage.setItem('sessionId', storedSessionId);
+      }
+      
+      // Try to load from localStorage as backup first
       const storedDocs = localStorage.getItem('uploadedDocuments');
       if (storedDocs) {
         try {
           const parsedDocs = JSON.parse(storedDocs);
           console.log('Found documents in localStorage:', parsedDocs);
-          setUploadedDocuments(parsedDocs);
-          if (parsedDocs.length > 0) {
+          if (parsedDocs && parsedDocs.length > 0) {
+            setUploadedDocuments(parsedDocs);
             setSelectedDocument(parsedDocs[0]);
+            console.log('Loaded documents from localStorage successfully');
           }
         } catch (e) {
           console.error('Error parsing stored documents:', e);
         }
       }
       
-      // Then try to load from backend
+      // Also try to load from backend to sync
       const result = await apiService.listDocuments();
       console.log('Documents result:', result);
       
@@ -59,26 +68,40 @@ const Query: React.FC = () => {
         }));
         
         console.log('Converted documents:', documents);
-        setUploadedDocuments(documents);
-        // Update localStorage with fresh data
-        localStorage.setItem('uploadedDocuments', JSON.stringify(documents));
+        
         if (documents.length > 0) {
+          setUploadedDocuments(documents);
           setSelectedDocument(documents[0]);
+          // Update localStorage with fresh data
+          localStorage.setItem('uploadedDocuments', JSON.stringify(documents));
+          console.log('Updated documents from backend');
         }
       } else {
         console.log('No documents found in backend result');
-        // If no documents in backend but we have localStorage data, keep using it
-        if (!storedDocs) {
+        // If no documents in backend and no localStorage data, show empty state
+        if (!storedDocs || !JSON.parse(storedDocs || '[]').length) {
           setUploadedDocuments([]);
+          console.log('No documents found anywhere');
         }
       }
     } catch (error) {
       console.error('Failed to load documents:', error);
-      // Don't show error if we have localStorage data
+      // Try to use localStorage data as fallback
       const storedDocs = localStorage.getItem('uploadedDocuments');
-      if (!storedDocs) {
-        setError('Failed to load documents');
+      if (storedDocs) {
+        try {
+          const parsedDocs = JSON.parse(storedDocs);
+          if (parsedDocs && parsedDocs.length > 0) {
+            setUploadedDocuments(parsedDocs);
+            setSelectedDocument(parsedDocs[0]);
+            console.log('Using localStorage fallback after backend error');
+            return;
+          }
+        } catch (e) {
+          console.error('Error parsing localStorage fallback:', e);
+        }
       }
+      setError('Failed to load documents');
     }
   };
 

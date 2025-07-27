@@ -77,6 +77,7 @@ export const apiService = {
       const response = await api.post('/session');
       const sessionId = response.data.session_id;
       setSessionId(sessionId);
+      console.log('✅ Session created:', sessionId);
       return { success: true, data: response.data };
     } catch (error: any) {
       return { 
@@ -126,10 +127,19 @@ export const apiService = {
       const response = await api.post('/upload-documents', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
+          'X-Session-ID': sessionId,
         },
       });
 
       console.log('Upload response:', response.data);
+      
+      // Ensure session ID is updated from response
+      const responseSessionId = response.headers['x-session-id'] || response.data.session_id;
+      if (responseSessionId && responseSessionId !== sessionId) {
+        setSessionId(responseSessionId);
+        console.log('Updated session ID from upload response:', responseSessionId);
+      }
+      
       return { success: true, data: response.data };
     } catch (error: any) {
       console.error('Upload error:', error);
@@ -260,11 +270,23 @@ export const apiService = {
         return { success: true, data: { documents: [], count: 0 } };
       }
       
-      const response = await api.get('/documents');
+      const response = await api.get('/documents', {
+        headers: {
+          'X-Session-ID': sessionId,
+        },
+      });
       console.log('Documents response:', response.data);
       return { success: true, data: response.data };
     } catch (error: any) {
       console.error('List documents error:', error);
+      
+      // If session not found, try to create a new one
+      if (error.response?.status === 404 && error.response?.data?.detail?.includes('Session')) {
+        console.log('Session not found, clearing local session');
+        currentSessionId = null;
+        localStorage.removeItem('sessionId');
+      }
+      
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Failed to list documents' 

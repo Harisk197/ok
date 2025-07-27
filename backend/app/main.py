@@ -60,13 +60,20 @@ ocr_service = OCRService()
 # Session dependency
 async def get_or_create_session(x_session_id: Optional[str] = Header(None)) -> str:
     """Get existing session or create new one"""
+    logger.info(f"Session header received: {x_session_id}")
+    
     if x_session_id:
         session = session_service.get_session(x_session_id)
         if session:
+            logger.info(f"Using existing session: {x_session_id}")
             return x_session_id
+        else:
+            logger.warning(f"Session {x_session_id} not found, creating new one")
     
     # Create new session
-    return session_service.create_session()
+    new_session_id = session_service.create_session()
+    logger.info(f"Created new session: {new_session_id}")
+    return new_session_id
 
 @app.on_event("startup")
 async def startup_event():
@@ -199,13 +206,20 @@ async def upload_documents(
         
         logger.info(f"Upload complete: {len(processed_documents)} documents in session {session_id}")
         
-        return UploadResponse(
+        response = UploadResponse(
             success=True,
             message=message,
             documents=processed_documents,
             total_documents=len(processed_documents),
             session_id=session_id
         )
+        
+        # Add session ID to response headers
+        from fastapi import Response
+        response_obj = Response()
+        response_obj.headers["X-Session-ID"] = session_id
+        
+        return response
         
     except Exception as e:
         logger.error(f"Upload failed: {e}")
@@ -306,11 +320,15 @@ async def list_documents(session_id: str = Depends(get_or_create_session)):
         logger.info(f"Listing documents for session: {session_id}")
         documents = await document_service.list_documents(session_id)
         logger.info(f"Found {len(documents)} documents in session {session_id}")
-        return {
+        
+        response_data = {
             "documents": documents,
             "session_id": session_id,
             "count": len(documents)
         }
+        
+        logger.info(f"Returning documents response: {len(documents)} documents")
+        return response_data
     except Exception as e:
         logger.error(f"Failed to list documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))

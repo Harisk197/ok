@@ -46,6 +46,10 @@ const Upload: React.FC = () => {
     console.log('Files uploaded callback:', files);
     setUploadedFiles(files);
     setError(null);
+    
+    // Store in localStorage as backup
+    localStorage.setItem('uploadedDocuments', JSON.stringify(files));
+    console.log('Stored documents in localStorage:', files.length);
   };
 
   const clearAllFiles = () => {
@@ -67,8 +71,17 @@ const Upload: React.FC = () => {
   const proceedToQuery = () => {
     console.log('Proceeding to query with files:', uploadedFiles);
     if (uploadedFiles.length > 0) {
-      // Store documents in localStorage as backup
+      // Ensure documents are stored in localStorage
       localStorage.setItem('uploadedDocuments', JSON.stringify(uploadedFiles));
+      
+      // Also store session ID
+      const sessionId = apiService.getCurrentSessionId();
+      if (sessionId) {
+        localStorage.setItem('currentSessionId', sessionId);
+        console.log('Stored session ID for query page:', sessionId);
+      }
+      
+      console.log('Navigating to query with', uploadedFiles.length, 'documents');
       navigate('/query');
     } else {
       setError('Please upload at least one document before proceeding');
