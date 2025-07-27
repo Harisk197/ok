@@ -180,7 +180,7 @@ async def upload_documents(
                 )
                 
                 processed_documents.append(document_info)
-                logger.info(f"✅ Processed document: {file.filename}")
+                logger.info(f"✅ Processed document: {file.filename} - {len(extracted_text)} chars extracted")
                 
             except Exception as e:
                 logger.error(f"Failed to process {file.filename}: {e}")
@@ -226,6 +226,8 @@ async def chat_with_documents(
             session_id,
             request.history
         )
+        
+        logger.info(f"Built context with {len(context)} characters for session {session_id}")
         
         if not context.strip():
             # No documents available

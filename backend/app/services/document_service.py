@@ -170,17 +170,22 @@ class DocumentService:
             context_parts.append("=== UPLOADED DOCUMENTS ===")
             for doc in documents:
                 context_parts.append(f"\n📄 **{doc.name}**")
+                context_parts.append(f"Document Type: {doc.type}")
+                context_parts.append(f"Upload Date: {doc.uploaded_at}")
+                context_parts.append(f"File Size: {doc.size} bytes")
+                
                 if doc.text_content:
                     # Truncate very long content
-                    content = doc.text_content[:3000] + "..." if len(doc.text_content) > 3000 else doc.text_content
+                    content = doc.text_content[:4000] + "..." if len(doc.text_content) > 4000 else doc.text_content
+                    context_parts.append("\n**Document Content:**")
                     context_parts.append(content)
                 
                 # Add extracted clauses
                 if doc.clauses:
                     context_parts.append("\n**Key Clauses:**")
-                    for clause in doc.clauses[:8]:  # First 8 clauses
-                        clause_text = clause['text'][:300] + "..." if len(clause['text']) > 300 else clause['text']
-                        context_parts.append(f"- {clause['number']}: {clause_text}")
+                    for clause in doc.clauses[:10]:  # First 10 clauses
+                        clause_text = clause['text'][:400] + "..." if len(clause['text']) > 400 else clause['text']
+                        context_parts.append(f"- Clause {clause['number']} ({clause['type']}): {clause_text}")
                 
                 context_parts.append("\n" + "-"*50)
         

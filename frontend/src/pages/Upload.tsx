@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, RotateCcw } from 'lucide-react';
@@ -17,7 +18,9 @@ const Upload: React.FC = () => {
   useEffect(() => {
     const loadExistingDocuments = async () => {
       try {
+        console.log('Loading existing documents on Upload page...');
         const result = await apiService.listDocuments();
+        console.log('List documents result:', result);
         if (result.success && result.data.documents) {
           const documents: UploadedDocument[] = result.data.documents.map((doc: any) => ({
             id: doc.id,
@@ -29,7 +32,7 @@ const Upload: React.FC = () => {
             clauses: doc.clauses,
           }));
           setUploadedFiles(documents);
-          console.log('Loaded existing documents:', documents);
+          console.log('Loaded existing documents on Upload page:', documents);
         }
       } catch (error) {
         console.error('Failed to load existing documents:', error);
@@ -47,16 +50,28 @@ const Upload: React.FC = () => {
 
   const clearAllFiles = () => {
     console.log('Clearing all files...');
-    setUploadedFiles([]);
-    // Clear session
-    apiService.clearSession();
-    setError(null);
+    apiService.clearAllDocuments().then((result) => {
+      if (result.success) {
+        setUploadedFiles([]);
+        setError(null);
+        console.log('All files cleared successfully');
+      } else {
+        setError(result.error || 'Failed to clear files');
+      }
+    }).catch((error) => {
+      console.error('Error clearing files:', error);
+      setError('Failed to clear files');
+    });
   };
 
   const proceedToQuery = () => {
+    console.log('Proceeding to query with files:', uploadedFiles);
     if (uploadedFiles.length > 0) {
-      console.log('Proceeding to query with files:', uploadedFiles);
+      // Store documents in localStorage as backup
+      localStorage.setItem('uploadedDocuments', JSON.stringify(uploadedFiles));
       navigate('/query');
+    } else {
+      setError('Please upload at least one document before proceeding');
     }
   };
 

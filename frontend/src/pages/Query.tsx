@@ -26,6 +26,23 @@ const Query: React.FC = () => {
   const loadDocuments = async () => {
     try {
       console.log('Loading documents in Query page...');
+      
+      // First try to load from localStorage as backup
+      const storedDocs = localStorage.getItem('uploadedDocuments');
+      if (storedDocs) {
+        try {
+          const parsedDocs = JSON.parse(storedDocs);
+          console.log('Found documents in localStorage:', parsedDocs);
+          setUploadedDocuments(parsedDocs);
+          if (parsedDocs.length > 0) {
+            setSelectedDocument(parsedDocs[0]);
+          }
+        } catch (e) {
+          console.error('Error parsing stored documents:', e);
+        }
+      }
+      
+      // Then try to load from backend
       const result = await apiService.listDocuments();
       console.log('Documents result:', result);
       
@@ -43,15 +60,25 @@ const Query: React.FC = () => {
         
         console.log('Converted documents:', documents);
         setUploadedDocuments(documents);
+        // Update localStorage with fresh data
+        localStorage.setItem('uploadedDocuments', JSON.stringify(documents));
         if (documents.length > 0) {
           setSelectedDocument(documents[0]);
         }
       } else {
-        console.log('No documents found in result');
+        console.log('No documents found in backend result');
+        // If no documents in backend but we have localStorage data, keep using it
+        if (!storedDocs) {
+          setUploadedDocuments([]);
+        }
       }
     } catch (error) {
       console.error('Failed to load documents:', error);
-      setError('Failed to load documents');
+      // Don't show error if we have localStorage data
+      const storedDocs = localStorage.getItem('uploadedDocuments');
+      if (!storedDocs) {
+        setError('Failed to load documents');
+      }
     }
   };
 

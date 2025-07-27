@@ -108,7 +108,7 @@ class OCRService:
             
         except Exception as e:
             logger.error(f"PDF text extraction failed: {e}")
-            return f"PDF processing error: {str(e)}"
+            return f"Error extracting text from PDF: {str(e)}. This might be a scanned document that requires OCR processing."
     
     async def _extract_from_image(self, file_path: str) -> str:
         """Extract text from image file using OCR"""

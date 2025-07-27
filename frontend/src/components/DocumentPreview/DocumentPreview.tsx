@@ -101,6 +101,34 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
             <div className="flex-1 overflow-y-auto space-y-6 text-sm text-gray-700 leading-relaxed px-2">
               {selectedDocument.textContent ? (
                 <div className="space-y-4">
+                  {/* Document Summary Section */}
+                  <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
+                    <h5 className="font-bold text-lg text-gray-900 mb-3 flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full" />
+                      <span>Document Summary:</span>
+                    </h5>
+                    <div className="text-gray-800 leading-relaxed">
+                      {selectedDocument.textContent.length > 500 ? (
+                        <div>
+                          <p className="mb-2">
+                            <strong>Document Type:</strong> {selectedDocument.type}
+                          </p>
+                          <p className="mb-2">
+                            <strong>Size:</strong> {Math.round(selectedDocument.size / 1024)} KB
+                          </p>
+                          <p className="mb-2">
+                            <strong>Content Preview:</strong>
+                          </p>
+                          <p className="text-sm bg-white p-3 rounded-lg border">
+                            {selectedDocument.textContent.substring(0, 300)}...
+                          </p>
+                        </div>
+                      ) : (
+                        <p>This document contains {selectedDocument.textContent.length} characters of extracted text.</p>
+                      )}
+                    </div>
+                  </div>
+                  
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
                     <h5 className="font-bold text-lg text-gray-900 mb-3">Document Content:</h5>
                     <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
@@ -136,12 +164,27 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                     <div className="bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-xl border border-gray-200">
                       <h5 className="font-bold text-lg text-gray-900 mb-3 flex items-center space-x-2">
                         <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                        <span>Extracted Clauses:</span>
+                        <span>Extracted Clauses ({selectedDocument.clauses.length}):</span>
                       </h5>
                       <div className="space-y-2">
-                        {selectedDocument.clauses.slice(0, 5).map((clause, index) => (
+                        {selectedDocument.clauses.slice(0, 8).map((clause, index) => (
                           <div key={index} className="p-3 bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow">
-                            <p><strong className="text-blue-600">{clause.number}</strong> {clause.text.substring(0, 150)}...</p>
+                            <div className="flex items-start space-x-2">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                clause.type === 'critical' ? 'bg-red-100 text-red-700' :
+                                clause.type === 'supportive' ? 'bg-green-100 text-green-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {clause.type}
+                              </span>
+                              <div className="flex-1">
+                                <p className="font-semibold text-blue-600 mb-1">{clause.number}</p>
+                                <p className="text-gray-700">{clause.text.substring(0, 200)}...</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Confidence: {Math.round(clause.confidence * 100)}%
+                                </p>
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -151,7 +194,10 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
               ) : (
                 <div className="text-center p-8">
                   <Eye className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">No text content extracted from this document</p>
+                  <p className="text-gray-500 mb-2">No text content extracted from this document</p>
+                  <p className="text-sm text-gray-400">
+                    This might be a scanned document or image that needs OCR processing.
+                  </p>
                 </div>
               )}
             </div>
