@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi import Request, Header
+from fastapi import Request, Header, Response
 import uvicorn
 import os
 from typing import List, Optional
@@ -228,11 +228,13 @@ async def upload_documents(
 @app.post("/chat")
 async def chat_with_documents(
     request: ChatRequest,
-    session_id: str = Depends(get_or_create_session)
+    session_id: str = Depends(get_or_create_session),
+    response: Response
 ):
     """Chat with AI about uploaded documents - with streaming response"""
     try:
         logger.info(f"Chat request: {request.message[:100]}...")
+        logger.info(f"Session ID: {session_id}")
         
         # Build context from documents and chat history
         context = await document_service.build_context(
@@ -243,11 +245,34 @@ async def chat_with_documents(
         
         logger.info(f"Built context with {len(context)} characters for session {session_id}")
         
+        # Test Ollama connection before proceeding
+        ollama_available = await ollama_service.test_connection()
+        if not ollama_available:
+            logger.error("Ollama service not available")
+            async def ollama_error_response():
+                error_response = {
+                    'error': "AI service (Ollama) is not available. Please ensure Ollama is running and DeepSeek model is installed.",
+                    'done': True,
+                    'session_id': session_id
+                }
+                yield f"data: {json.dumps(error_response)}\n\n"
+            
+            return StreamingResponse(
+                ollama_error_response(),
+                media_type="text/plain",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "X-Session-ID": session_id,
+                }
+            )
+        
         if not context.strip():
             # No documents available
             async def no_documents_response():
                 error_response = {
-                    'content': "I don't see any documents uploaded yet. Please upload some legal documents first so I can help analyze them.",
+                    'error': "I don't see any documents uploaded yet. Please upload some legal documents first so I can help analyze them.",
                     'done': True,
                     'session_id': session_id
                 }
@@ -264,15 +289,19 @@ async def chat_with_documents(
                 }
             )
         
+        logger.info("Starting Ollama streaming...")
+        
         # Create streaming response
         async def generate_response():
             try:
+                logger.info("Calling ollama_service.stream_chat...")
                 # Stream response from Ollama
                 async for chunk in ollama_service.stream_chat(
                     message=request.message,
                     context=context,
                     history=request.history
                 ):
+                    logger.debug(f"Received chunk: {chunk[:50]}...")
                     # Format as Server-Sent Events
                     response_data = {
                         'content': chunk, 
@@ -281,6 +310,7 @@ async def chat_with_documents(
                     }
                     yield f"data: {json.dumps(response_data)}\n\n"
                 
+                logger.info("Ollama streaming completed")
                 # Send completion signal
                 completion_data = {
                     'content': '', 
@@ -291,12 +321,17 @@ async def chat_with_documents(
                 
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
+                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error details: {str(e)}")
                 error_response = {
-                    'error': str(e),
+                    'error': f"AI service error: {str(e)}",
                     'done': True,
                     'session_id': session_id
                 }
                 yield f"data: {json.dumps(error_response)}\n\n"
+        
+        # Set response headers
+        response.headers["X-Session-ID"] = session_id
         
         return StreamingResponse(
             generate_response(),
@@ -311,6 +346,7 @@ async def chat_with_documents(
         
     except Exception as e:
         logger.error(f"Chat failed: {e}")
+        logger.error(f"Chat error type: {type(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/documents")

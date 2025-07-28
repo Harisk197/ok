@@ -158,12 +158,16 @@ export const apiService = {
     onChunk?: (chunk: string) => void
   ): Promise<ApiResponse> => {
     try {
+      console.log('🚀 Starting chat message request...');
       // Ensure we have a session
       if (!getSessionId()) {
+        console.log('No session found, creating new session...');
         const sessionResult = await apiService.createSession();
         if (!sessionResult.success) {
+          console.error('Failed to create session:', sessionResult.error);
           return sessionResult;
         }
+        console.log('Created new session for chat:', sessionResult.data.session_id);
       }
       
       const requestData = {
@@ -176,8 +180,16 @@ export const apiService = {
         documents: documents || [],
       };
       
+      console.log('Chat request data:', {
+        message: message.substring(0, 100) + '...',
+        historyLength: requestData.history.length,
+        documentsLength: requestData.documents.length
+      });
+      
       // Use fetch for streaming instead of axios
       const sessionId = getSessionId();
+      console.log('Using session ID for chat:', sessionId);
+      
       const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: {
@@ -187,19 +199,25 @@ export const apiService = {
         body: JSON.stringify(requestData),
       });
       
+      console.log('Chat response status:', response.status);
+      console.log('Chat response headers:', Object.fromEntries(response.headers.entries()));
+      
       if (!response.ok) {
         let errorMessage = 'Chat request failed';
         try {
           const errorData = await response.json();
+          console.error('Chat error response:', errorData);
           errorMessage = errorData.detail || errorData.message || errorMessage;
         } catch {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
+        console.error('Chat request failed:', errorMessage);
         throw new Error(errorMessage);
       }
       
       // Handle streaming response
       if (onChunk && response.body) {
+        console.log('Starting to process streaming response...');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
@@ -210,30 +228,35 @@ export const apiService = {
             if (done) break;
             
             const chunk = decoder.decode(value);
+            console.log('Raw chunk received:', chunk);
             const lines = chunk.split('\n');
             
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
+                  console.log('Parsed SSE data:', data);
                   
                   // Handle errors in streaming response
                   if (data.error) {
+                    console.error('Streaming error received:', data.error);
                     throw new Error(data.error);
                   }
                   
                   // Handle content chunks
                   if (data.content) {
                     fullResponse += data.content;
+                    console.log('Calling onChunk with:', data.content);
                     onChunk(data.content);
                   }
                   
                   // Handle completion
                   if (data.done) {
+                    console.log('Streaming completed, full response length:', fullResponse.length);
                     return { success: true, data: { response: fullResponse } };
                   }
                 } catch (parseError) {
-                  console.warn('Failed to parse SSE data:', line);
+                  console.warn('Failed to parse SSE data:', line, parseError);
                   // Don't throw here, just continue
                 }
               }
@@ -243,15 +266,19 @@ export const apiService = {
           reader.releaseLock();
         }
         
+        console.log('Streaming finished, returning response');
         return { success: true, data: { response: fullResponse } };
       }
 
       // Fallback for non-streaming
       const data = await response.json();
+      console.log('Non-streaming response:', data);
       return { success: true, data };
       
     } catch (error: any) {
       console.error('Chat API Error:', error);
+      console.error('Error type:', typeof error);
+      console.error('Error details:', error);
       return { 
         success: false, 
         error: error.message || 'Chat request failed' 

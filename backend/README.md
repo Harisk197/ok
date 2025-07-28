@@ -33,11 +33,16 @@ A powerful **FastAPI backend** that integrates with **Ollama DeepSeek-R1:8b** fo
 # Install Ollama (Linux/macOS)
 curl -fsSL https://ollama.ai/install.sh | sh
 
+# For Windows, download from: https://ollama.ai/download
+
 # Start Ollama service
 ollama serve
 
 # Pull DeepSeek-R1:8b model
 ollama pull deepseek-r1:8b
+
+# Verify the model is installed
+ollama list
 ```
 
 ### **3. Install Tesseract OCR**
