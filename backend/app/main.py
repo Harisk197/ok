@@ -108,7 +108,9 @@ async def health_check():
     try:
         # Test Ollama connection
         try:
+            logger.info("Testing Ollama connection for health check...")
             ollama_status = await ollama_service.test_connection()
+            logger.info(f"Ollama status: {ollama_status}")
         except Exception:
             ollama_status = False
         
@@ -321,10 +323,11 @@ async def chat_with_documents(
                 
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
-                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error type: {type(e).__name__}")
                 logger.error(f"Error details: {str(e)}")
+                
                 error_response = {
-                    'error': f"AI service error: {str(e)}",
+                    'error': str(e),
                     'done': True,
                     'session_id': session_id
                 }

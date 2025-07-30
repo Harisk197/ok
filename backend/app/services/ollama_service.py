@@ -111,15 +111,18 @@ class OllamaService:
                                 
         except Exception as e:
             logger.error(f"❌ Ollama streaming failed: {e}")
-            logger.error(f"Stream error type: {type(e)}")
-            logger.error(f"Stream error details: {str(e)}")
-            error_msg = "I apologize, but I'm having trouble connecting to the AI service. Please try again in a moment."
+            logger.error(f"Stream error type: {type(e).__name__}")
+            
+            error_msg = "I'm having trouble connecting to the AI service."
             if "Connection" in str(e):
-                error_msg = "Unable to connect to the AI service. Please ensure Ollama is running and try again."
+                error_msg = "Unable to connect to the AI service. Please ensure Ollama is running."
             elif "timeout" in str(e).lower():
-                error_msg = "The AI service is taking too long to respond. Please try with a shorter question."
+                error_msg = "The AI service is taking too long to respond."
             elif "not available" in str(e).lower():
                 error_msg = str(e)
+            elif "model" in str(e).lower():
+                error_msg = f"AI model issue: {str(e)}"
+            
             yield error_msg
     
     def _build_system_prompt(self) -> str:

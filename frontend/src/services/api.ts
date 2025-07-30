@@ -278,10 +278,28 @@ export const apiService = {
     } catch (error: any) {
       console.error('Chat API Error:', error);
       console.error('Error type:', typeof error);
-      console.error('Error details:', error);
+      
+      let errorMessage = 'Chat request failed';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        if (error.message) {
+          errorMessage = error.message;
+        } else if (error.error) {
+          errorMessage = error.error;
+        } else if (error.response?.data?.detail) {
+          errorMessage = error.response.data.detail;
+        } else {
+          errorMessage = 'Network or server error occurred';
+        }
+      }
+      
       return { 
         success: false, 
-        error: error.message || 'Chat request failed' 
+        error: errorMessage
       };
     }
   },

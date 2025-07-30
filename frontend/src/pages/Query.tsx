@@ -139,7 +139,6 @@ const Query: React.FC = () => {
         chatMessages,
         uploadedDocuments,
         (chunk: string) => {
-          // Handle streaming chunks
           if (!hasStartedStreaming) {
             hasStartedStreaming = true;
             // Show thinking indicator first
@@ -164,7 +163,8 @@ const Query: React.FC = () => {
       );
       
       if (!result.success) {
-        throw new Error(result.error || 'Failed to get response');
+        const errorMessage = typeof result.error === 'string' ? result.error : 'Failed to get response';
+        throw new Error(errorMessage);
       }
       
       // Mark streaming as complete
@@ -182,7 +182,23 @@ const Query: React.FC = () => {
       
     } catch (error) {
       console.error('Chat error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      let errorMessage = 'An error occurred';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        // Handle object errors properly
+        if (error.message) {
+          errorMessage = error.message;
+        } else if (error.error) {
+          errorMessage = error.error;
+        } else {
+          errorMessage = 'Unknown error occurred';
+        }
+      }
+      
       setError(errorMessage);
       
       // Update the assistant message with error
