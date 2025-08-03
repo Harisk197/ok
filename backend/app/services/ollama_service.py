@@ -47,11 +47,16 @@ class OllamaService:
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama DeepSeek model"""
         try:
-            logger.info("Starting stream_chat method")
+            logger.info("=== OLLAMA STREAM_CHAT START ===")
+            logger.info(f"Message length: {len(message)}")
+            logger.info(f"Context length: {len(context)}")
+            logger.info(f"History items: {len(history) if history else 0}")
+            
             # Build the prompt with legal document context
             system_prompt = self._build_system_prompt()
             full_prompt = self._build_full_prompt(message, context, history)
-            logger.info(f"Built prompt with {len(full_prompt)} characters")
+            logger.info(f"Full prompt length: {len(full_prompt)} characters")
+            logger.info(f"System prompt length: {len(system_prompt)} characters")
             
             payload = {
                 "model": self.model,
@@ -67,62 +72,84 @@ class OllamaService:
                 }
             }
             
-            logger.info(f"🤖 Sending request to DeepSeek model: {self.model}")
-            logger.info(f"Request URL: {self.base_url}/api/generate")
-            logger.debug(f"Prompt length: {len(full_prompt)} characters")
+            logger.info(f"=== OLLAMA REQUEST ===")
+            logger.info(f"Model: {self.model}")
+            logger.info(f"URL: {self.base_url}/api/generate")
+            logger.info(f"Payload keys: {list(payload.keys())}")
             
             # Test connection first
+            logger.info("Testing Ollama connection before streaming...")
             connection_ok = await self.test_connection()
+            logger.info(f"Connection test result: {connection_ok}")
+            
             if not connection_ok:
+                logger.error("Ollama connection test failed")
                 raise Exception("Ollama service is not available. Please ensure Ollama is running and the DeepSeek model is installed.")
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.info("Making request to Ollama...")
+                logger.info("=== MAKING OLLAMA HTTP REQUEST ===")
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/api/generate",
                     json=payload
                 ) as response:
-                    logger.info(f"Ollama response status: {response.status_code}")
+                    logger.info(f"HTTP Status: {response.status_code}")
+                    logger.info(f"Response headers: {dict(response.headers)}")
+                    
                     if response.status_code != 200:
                         error_text = await response.aread()
-                        logger.error(f"Ollama API error: {response.status_code} - {error_text}")
-                        raise Exception(f"Ollama API error: {response.status_code} - {error_text}")
+                        error_msg = f"Ollama API error {response.status_code}: {error_text.decode()}"
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
                     
                     total_tokens = 0
-                    logger.info("Starting to read streaming response...")
+                    logger.info("=== READING STREAM RESPONSE ===")
                     async for line in response.aiter_lines():
                         if line.strip():
                             try:
                                 chunk = json.loads(line)
-                                logger.debug(f"Received chunk: {chunk}")
+                                
                                 if "response" in chunk:
                                     total_tokens += 1
-                                    logger.debug(f"Yielding token {total_tokens}: {chunk['response']}")
+                                    if total_tokens <= 5 or total_tokens % 50 == 0:  # Log first 5 and every 50th
+                                        logger.debug(f"Token {total_tokens}: {repr(chunk['response'])}")
                                     yield chunk["response"]
                                 
+                                if "error" in chunk:
+                                    error_msg = chunk["error"]
+                                    logger.error(f"Ollama returned error: {error_msg}")
+                                    raise Exception(f"Ollama error: {error_msg}")
+                                
                                 if chunk.get("done", False):
-                                    logger.info(f"✅ DeepSeek response completed ({total_tokens} tokens)")
+                                    logger.info(f"=== STREAM COMPLETED ===")
+                                    logger.info(f"Total tokens: {total_tokens}")
                                     break
                                     
                             except json.JSONDecodeError:
-                                logger.warning(f"Failed to parse JSON: {line}")
+                                logger.warning(f"JSON parse error: {repr(line)}")
                                 continue
                                 
         except Exception as e:
-            logger.error(f"❌ Ollama streaming failed: {e}")
+            logger.error(f"=== OLLAMA STREAMING FAILED ===")
+            logger.error(f"Error: {e}")
             logger.error(f"Stream error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             
-            error_msg = "I'm having trouble connecting to the AI service."
-            if "Connection" in str(e):
-                error_msg = "Unable to connect to the AI service. Please ensure Ollama is running."
-            elif "timeout" in str(e).lower():
-                error_msg = "The AI service is taking too long to respond."
-            elif "not available" in str(e).lower():
+            # Provide specific error messages
+            error_str = str(e).lower()
+            if "connection" in error_str or "connect" in error_str:
+                error_msg = "Cannot connect to Ollama. Please run 'ollama serve' to start the service."
+            elif "timeout" in error_str:
+                error_msg = "Ollama is taking too long to respond. The model might be loading."
+            elif "model" in error_str:
+                error_msg = f"Model '{self.model}' not found. Please run 'ollama pull {self.model}'"
+            elif "not available" in error_str:
                 error_msg = str(e)
-            elif "model" in str(e).lower():
-                error_msg = f"AI model issue: {str(e)}"
+            else:
+                error_msg = f"Ollama error: {str(e)}"
             
+            logger.error(f"Yielding error message: {error_msg}")
             yield error_msg
     
     def _build_system_prompt(self) -> str:

@@ -156,17 +156,22 @@ class DocumentService:
         history: List[Dict[str, Any]] = None
     ) -> str:
         """Build context string from documents and history"""
+        logger.info(f"Building context for session {session_id}")
+        
         # Get documents from session if not provided
         if not documents and session_id:
             documents = session_service.get_session_documents(session_id)
+            logger.info(f"Retrieved {len(documents)} documents from session")
         
         if not documents:
             documents = []
+            logger.warning("No documents available for context building")
             
         context_parts = []
         
         # Add document content
         if documents:
+            logger.info(f"Adding {len(documents)} documents to context")
             context_parts.append("=== UPLOADED DOCUMENTS ===")
             for doc in documents:
                 context_parts.append(f"\n📄 **{doc.name}**")
@@ -176,9 +181,10 @@ class DocumentService:
                 
                 if doc.text_content:
                     # Truncate very long content
-                    content = doc.text_content[:4000] + "..." if len(doc.text_content) > 4000 else doc.text_content
+                    content = doc.text_content[:8000] + "..." if len(doc.text_content) > 8000 else doc.text_content
                     context_parts.append("\n**Document Content:**")
                     context_parts.append(content)
+                    logger.info(f"Added {len(content)} characters of content from {doc.name}")
                 
                 # Add extracted clauses
                 if doc.clauses:
@@ -186,10 +192,16 @@ class DocumentService:
                     for clause in doc.clauses[:10]:  # First 10 clauses
                         clause_text = clause['text'][:400] + "..." if len(clause['text']) > 400 else clause['text']
                         context_parts.append(f"- Clause {clause['number']} ({clause['type']}): {clause_text}")
+                    logger.info(f"Added {len(doc.clauses)} clauses from {doc.name}")
                 
                 context_parts.append("\n" + "-"*50)
+        else:
+            logger.warning("No documents provided for context building")
+            context_parts.append("No documents have been uploaded yet.")
         
-        return "\n".join(context_parts)
+        final_context = "\n".join(context_parts)
+        logger.info(f"Built context with {len(final_context)} total characters")
+        return final_context
     
     async def list_documents(self, session_id: str = None) -> List[DocumentInfo]:
         """List all uploaded documents"""

@@ -158,16 +158,22 @@ export const apiService = {
     onChunk?: (chunk: string) => void
   ): Promise<ApiResponse> => {
     try {
-      console.log('🚀 Starting chat message request...');
+      console.log('=== CHAT MESSAGE REQUEST START ===');
+      console.log('Message:', message.substring(0, 100) + '...');
+      console.log('History length:', history.length);
+      console.log('Documents length:', documents?.length || 0);
+      
       // Ensure we have a session
-      if (!getSessionId()) {
-        console.log('No session found, creating new session...');
+      let sessionId = getSessionId();
+      if (!sessionId) {
+        console.log('No session ID found, creating new session...');
         const sessionResult = await apiService.createSession();
         if (!sessionResult.success) {
           console.error('Failed to create session:', sessionResult.error);
           return sessionResult;
         }
-        console.log('Created new session for chat:', sessionResult.data.session_id);
+        sessionId = sessionResult.data.session_id;
+        console.log('Created new session for chat:', sessionId);
       }
       
       const requestData = {
@@ -180,16 +186,14 @@ export const apiService = {
         documents: documents || [],
       };
       
-      console.log('Chat request data:', {
-        message: message.substring(0, 100) + '...',
-        historyLength: requestData.history.length,
-        documentsLength: requestData.documents.length
-      });
+      console.log('=== REQUEST DATA ===');
+      console.log('History items:', requestData.history.length);
+      console.log('Documents:', requestData.documents.length);
       
       // Use fetch for streaming instead of axios
-      const sessionId = getSessionId();
-      console.log('Using session ID for chat:', sessionId);
+      console.log('Using session ID:', sessionId);
       
+      console.log('=== MAKING FETCH REQUEST ===');
       const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: {
@@ -199,64 +203,76 @@ export const apiService = {
         body: JSON.stringify(requestData),
       });
       
-      console.log('Chat response status:', response.status);
-      console.log('Chat response headers:', Object.fromEntries(response.headers.entries()));
+      console.log('=== RESPONSE RECEIVED ===');
+      console.log('Status:', response.status);
+      console.log('Headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
+        console.error('=== HTTP ERROR ===');
         let errorMessage = 'Chat request failed';
         try {
           const errorData = await response.json();
-          console.error('Chat error response:', errorData);
+          console.error('Error data:', errorData);
           errorMessage = errorData.detail || errorData.message || errorMessage;
         } catch {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
-        console.error('Chat request failed:', errorMessage);
+        console.error('Final error message:', errorMessage);
         throw new Error(errorMessage);
       }
       
       // Handle streaming response
       if (onChunk && response.body) {
-        console.log('Starting to process streaming response...');
+        console.log('=== PROCESSING STREAM ===');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
+        let chunkCount = 0;
         
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             
+            chunkCount++;
             const chunk = decoder.decode(value);
-            console.log('Raw chunk received:', chunk);
+            if (chunkCount <= 5 || chunkCount % 10 === 0) {  // Log first 5 and every 10th
+              console.log(`Chunk ${chunkCount}:`, chunk.substring(0, 200));
+            }
+            
             const lines = chunk.split('\n');
             
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  console.log('Parsed SSE data:', data);
+                  
+                  if (chunkCount <= 5) {  // Only log first few parsed chunks
+                    console.log('Parsed data:', data);
+                  }
                   
                   // Handle errors in streaming response
                   if (data.error) {
-                    console.error('Streaming error received:', data.error);
+                    console.error('=== STREAMING ERROR ===');
+                    console.error('Error:', data.error);
                     throw new Error(data.error);
                   }
                   
                   // Handle content chunks
                   if (data.content) {
                     fullResponse += data.content;
-                    console.log('Calling onChunk with:', data.content);
                     onChunk(data.content);
                   }
                   
                   // Handle completion
                   if (data.done) {
-                    console.log('Streaming completed, full response length:', fullResponse.length);
+                    console.log('=== STREAMING COMPLETED ===');
+                    console.log('Total chunks:', chunkCount);
+                    console.log('Full response length:', fullResponse.length);
                     return { success: true, data: { response: fullResponse } };
                   }
                 } catch (parseError) {
-                  console.warn('Failed to parse SSE data:', line, parseError);
+                  console.warn('Parse error for line:', line.substring(0, 100), parseError);
                   // Don't throw here, just continue
                 }
               }
@@ -266,37 +282,32 @@ export const apiService = {
           reader.releaseLock();
         }
         
-        console.log('Streaming finished, returning response');
+        console.log('=== STREAMING FINISHED ===');
         return { success: true, data: { response: fullResponse } };
       }
 
       // Fallback for non-streaming
       const data = await response.json();
-      console.log('Non-streaming response:', data);
+      console.log('=== NON-STREAMING RESPONSE ===', data);
       return { success: true, data };
       
     } catch (error: any) {
-      console.error('Chat API Error:', error);
+      console.error('=== CHAT API ERROR ===');
+      console.error('Error:', error);
       console.error('Error type:', typeof error);
+      console.error('Error constructor:', error.constructor.name);
       
-      let errorMessage = 'Chat request failed';
+      let errorMessage = 'Failed to send chat message';
       
       if (error instanceof Error) {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;
       } else if (error && typeof error === 'object') {
-        if (error.message) {
-          errorMessage = error.message;
-        } else if (error.error) {
-          errorMessage = error.error;
-        } else if (error.response?.data?.detail) {
-          errorMessage = error.response.data.detail;
-        } else {
-          errorMessage = 'Network or server error occurred';
-        }
+        errorMessage = error.message || error.error || error.detail || 'Unknown error occurred';
       }
       
+      console.error('Final error message:', errorMessage);
       return { 
         success: false, 
         error: errorMessage
