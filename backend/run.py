@@ -50,22 +50,27 @@ async def check_ollama():
 
 def main():
     """Main entry point"""
-    logger.info("🚀 Starting Smart Legal Assistant Backend...")
-    logger.info(f"📍 API will be available at: http://{settings.API_HOST}:{settings.API_PORT}")
-    logger.info(f"📚 API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/docs")
+    print("🚀 Starting Smart Legal Assistant Backend...")
+    print(f"📍 API will be available at: http://{settings.API_HOST}:{settings.API_PORT}")
+    print(f"📚 API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/docs")
+    print("=" * 60)
     
     # Check Ollama connection
     try:
         ollama_ok = asyncio.run(check_ollama())
         if not ollama_ok:
-            logger.warning("⚠️ Starting API without Ollama - AI features will not work!")
-            logger.info("You can still test file upload and other endpoints.")
+            print("⚠️  WARNING: Ollama not connected - AI features will not work!")
+            print("   Please run: ollama serve")
+            print("   Then run: ollama pull deepseek-r1:8b")
+            print("=" * 60)
     except Exception as e:
-        logger.error(f"Error checking Ollama: {e}")
+        print(f"❌ Error checking Ollama: {e}")
     
     # Start the server
     try:
-        logger.info("🔥 Starting FastAPI server...")
+        print("🔥 Starting FastAPI server...")
+        print("   Press Ctrl+C to stop")
+        print("=" * 60)
         uvicorn.run(
             "app.main:app",
             host=settings.API_HOST,
@@ -76,9 +81,9 @@ def main():
             reload_dirs=["app"] if settings.DEBUG else None
         )
     except KeyboardInterrupt:
-        logger.info("👋 Server stopped by user")
+        print("\n👋 Server stopped by user")
     except Exception as e:
-        logger.error(f"❌ Server failed to start: {e}")
+        print(f"❌ Server failed to start: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
