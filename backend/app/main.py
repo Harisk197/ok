@@ -252,12 +252,7 @@ async def chat_with_documents(
         if not documents_to_use:
             logger.warning("No documents available for chat")
             async def no_documents_response():
-                error_response = {
-                    'error': "No documents found. Please upload some legal documents first.",
-                    'done': True,
-                    'session_id': session_id
-                }
-                yield f"data: {json.dumps(error_response)}\n\n"
+                yield f"data: {json.dumps({'error': 'No documents found. Please upload some legal documents first.', 'done': True})}\n\n"
             
             return StreamingResponse(
                 no_documents_response(),
@@ -270,9 +265,8 @@ async def chat_with_documents(
                 }
             )
         
-        logger.info(f"Session ID: {session_id}")
-        
         # Build context from documents and chat history
+        logger.info("Building context from documents...")
         context = await document_service.build_context(
             documents_to_use,
             session_id,
@@ -289,12 +283,7 @@ async def chat_with_documents(
         if not ollama_available:
             logger.error("Ollama service not available")
             async def ollama_error_response():
-                error_response = {
-                    'error': "AI service is not available. Please ensure Ollama is running with 'ollama serve' and DeepSeek model is installed with 'ollama pull deepseek-r1:8b'",
-                    'done': True,
-                    'session_id': session_id
-                }
-                yield f"data: {json.dumps(error_response)}\n\n"
+                yield f"data: {json.dumps({'error': 'AI service is not available. Please ensure Ollama is running with ollama serve and DeepSeek model is installed with ollama pull deepseek-r1:8b', 'done': True})}\n\n"
             
             return StreamingResponse(
                 ollama_error_response(),
@@ -322,21 +311,11 @@ async def chat_with_documents(
                     if chunk.strip():  # Only log non-empty chunks
                         logger.debug(f"Streaming chunk: {chunk[:100]}...")
                     # Format as Server-Sent Events
-                    response_data = {
-                        'content': chunk, 
-                        'done': False,
-                        'session_id': session_id
-                    }
-                    yield f"data: {json.dumps(response_data)}\n\n"
+                    yield f"data: {json.dumps({'content': chunk, 'done': False})}\n\n"
                 
                 logger.info("=== OLLAMA STREAM COMPLETED ===")
                 # Send completion signal
-                completion_data = {
-                    'content': '', 
-                    'done': True,
-                    'session_id': session_id
-                }
-                yield f"data: {json.dumps(completion_data)}\n\n"
+                yield f"data: {json.dumps({'content': '', 'done': True})}\n\n"
                 
             except Exception as e:
                 logger.error(f"=== STREAMING ERROR ===")
@@ -345,12 +324,7 @@ async def chat_with_documents(
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 
-                error_response = {
-                    'error': f"Streaming error: {str(e)}",
-                    'done': True,
-                    'session_id': session_id
-                }
-                yield f"data: {json.dumps(error_response)}\n\n"
+                yield f"data: {json.dumps({'error': f'Streaming error: {str(e)}', 'done': True})}\n\n"
         
         # Set response headers
         response.headers["X-Session-ID"] = session_id
@@ -372,7 +346,7 @@ async def chat_with_documents(
         logger.error(f"Error type: {type(e).__name__}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 @app.get("/documents")
 async def list_documents(session_id: str = Depends(get_or_create_session)):

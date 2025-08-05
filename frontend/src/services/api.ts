@@ -162,6 +162,7 @@ export const apiService = {
       console.log('Message:', message.substring(0, 100) + '...');
       console.log('History length:', history.length);
       console.log('Documents length:', documents?.length || 0);
+      console.log('API Base URL:', API_BASE_URL);
       
       // Ensure we have a session
       let sessionId = getSessionId();
@@ -209,16 +210,19 @@ export const apiService = {
       
       if (!response.ok) {
         console.error('=== HTTP ERROR ===');
+        console.error('Status:', response.status);
+        console.error('Status Text:', response.statusText);
+        
         let errorMessage = 'Chat request failed';
         try {
           const errorData = await response.json();
           console.error('Error data:', errorData);
-          errorMessage = errorData.detail || errorData.message || errorMessage;
+          errorMessage = errorData.detail || errorData.message || errorData.error || errorMessage;
         } catch {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
         console.error('Final error message:', errorMessage);
-        throw new Error(errorMessage);
+        return { success: false, error: errorMessage };
       }
       
       // Handle streaming response
@@ -255,7 +259,7 @@ export const apiService = {
                   if (data.error) {
                     console.error('=== STREAMING ERROR ===');
                     console.error('Error:', data.error);
-                    throw new Error(data.error);
+                    return { success: false, error: data.error };
                   }
                   
                   // Handle content chunks
@@ -297,14 +301,16 @@ export const apiService = {
       console.error('Error type:', typeof error);
       console.error('Error constructor:', error.constructor.name);
       
-      let errorMessage = 'Failed to send chat message';
+      let errorMessage = 'Network error: Failed to connect to the backend server';
       
       if (error instanceof Error) {
-        errorMessage = error.message;
+        if (error.message.includes('fetch')) {
+          errorMessage = 'Cannot connect to backend server. Please ensure the backend is running on http://localhost:8000';
+        } else {
+          errorMessage = error.message;
+        }
       } else if (typeof error === 'string') {
         errorMessage = error;
-      } else if (error && typeof error === 'object') {
-        errorMessage = error.message || error.error || error.detail || 'Unknown error occurred';
       }
       
       console.error('Final error message:', errorMessage);

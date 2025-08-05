@@ -108,6 +108,11 @@ const Query: React.FC = () => {
   const handleSendMessage = useCallback(async (message: string) => {
     setError(null);
     
+    console.log('=== FRONTEND CHAT START ===');
+    console.log('Message:', message);
+    console.log('Uploaded documents:', uploadedDocuments.length);
+    console.log('Chat history:', chatMessages.length);
+    
     // Add user message
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -134,6 +139,7 @@ const Query: React.FC = () => {
       let accumulatedResponse = '';
       let hasStartedStreaming = false;
       
+      console.log('=== CALLING API SERVICE ===');
       const result = await apiService.sendChatMessage(
         message, 
         chatMessages,
@@ -162,8 +168,32 @@ const Query: React.FC = () => {
         }
       );
       
+      console.log('=== API RESULT ===');
+      console.log('Success:', result.success);
+      console.log('Error:', result.error);
+      
       if (!result.success) {
-        const errorMessage = typeof result.error === 'string' ? result.error : 'Failed to get response';
+        console.error('=== API ERROR ===');
+        console.error('Raw error:', result.error);
+        console.error('Error type:', typeof result.error);
+        
+        let errorMessage = 'Failed to get response from AI';
+        
+        if (typeof result.error === 'string') {
+          errorMessage = result.error;
+        } else if (result.error && typeof result.error === 'object') {
+          if (result.error.message) {
+            errorMessage = result.error.message;
+          } else if (result.error.detail) {
+            errorMessage = result.error.detail;
+          } else if (result.error.error) {
+            errorMessage = result.error.error;
+          } else {
+            errorMessage = JSON.stringify(result.error);
+          }
+        }
+        
+        console.error('Processed error message:', errorMessage);
         throw new Error(errorMessage);
       }
       
@@ -182,23 +212,20 @@ const Query: React.FC = () => {
       
     } catch (error) {
       console.error('Chat error:', error);
-      let errorMessage = 'An error occurred';
+      console.error('Error type:', typeof error);
+      console.error('Error constructor:', error?.constructor?.name);
+      
+      let errorMessage = 'An error occurred while chatting with AI';
       
       if (error instanceof Error) {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;
-      } else if (error && typeof error === 'object') {
-        // Handle object errors properly
-        if (error.message) {
-          errorMessage = error.message;
-        } else if (error.error) {
-          errorMessage = error.error;
-        } else {
-          errorMessage = 'Unknown error occurred';
-        }
+      } else if (error && typeof error === 'object' && error !== null) {
+        errorMessage = JSON.stringify(error, null, 2);
       }
       
+      console.error('Final error message:', errorMessage);
       setError(errorMessage);
       
       // Update the assistant message with error
@@ -207,7 +234,7 @@ const Query: React.FC = () => {
           msg.id === assistantMessage.id 
             ? { 
                 ...msg, 
-                content: `I apologize, but I encountered an error: ${errorMessage}. Please try again.`,
+                content: `I apologize, but I encountered an error: ${errorMessage}. Please check that Ollama is running and the DeepSeek model is installed.`,
                 isStreaming: false 
               }
             : msg
